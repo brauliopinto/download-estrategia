@@ -1,0 +1,10 @@
+[project]
+name = "download-estrategia"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "logging>=0.4.9.6",
+    "selenium>=4.30.0",
+]
