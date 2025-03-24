@@ -12,6 +12,16 @@ from selenium.webdriver.support import expected_conditions as EC
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def setup_chrome_driver(download_dir, headless=False):
+    """
+    Configura o driver do Chrome com as opções necessárias para o download de arquivos PDF.
+    
+    Args:
+        download_dir (str): Diretório onde os arquivos serão baixados.
+        headless (bool): Se True, o navegador será executado em modo headless (sem interface gráfica).
+    
+    Returns:
+        WebDriver: Instância do WebDriver configurada.
+    """
     chrome_options = Options()
     prefs = {
         "download.default_directory": download_dir,
@@ -27,17 +37,43 @@ def setup_chrome_driver(download_dir, headless=False):
     return webdriver.Chrome(options=chrome_options)
 
 def sanitize_filename(filename):
-    # Remove caracteres inválidos para o Windows
+    """
+    Remove caracteres inválidos de um nome de arquivo para o Windows.
+    
+    Args:
+        filename (str): Nome do arquivo a ser sanitizado.
+    
+    Returns:
+        str: Nome do arquivo sanitizado.
+    """
     return re.sub(r'[<>:"/\\|?*\x00-\x1F]', '', filename)
 
 def truncate_filename(filename, max_length=150):
-    # Limita o nome do arquivo ao máximo permitido (150 caracteres)
+    """
+    Trunca o nome do arquivo se ele exceder um comprimento máximo.
+    
+    Args:
+        filename (str): Nome do arquivo a ser truncado.
+        max_length (int): Comprimento máximo permitido para o nome do arquivo.
+    
+    Returns:
+        str: Nome do arquivo truncado.
+    """
     if len(filename) > max_length:
         logging.warning(f"Nome da aula muito longo, truncando para {max_length} caracteres")
         filename = filename[:max_length]
     return filename
 
 def get_lesson_name(lesson_element):
+    """
+    Obtém o nome da aula a partir dos elementos HTML.
+    
+    Args:
+        lesson_element (WebElement): Elemento da aula contendo os detalhes.
+    
+    Returns:
+        str: Nome da aula sanitizado e truncado.
+    """
     try:
         h2_text = lesson_element.find_element(By.TAG_NAME, "h2").text
         p_text = lesson_element.find_element(By.TAG_NAME, "p").text
@@ -53,6 +89,13 @@ def get_lesson_name(lesson_element):
         return "Aula_Sem_Nome"
 
 def rename_downloaded_file(download_dir, new_name):
+    """
+    Renomeia o arquivo PDF mais recente baixado no diretório de downloads.
+    
+    Args:
+        download_dir (str): Diretório onde os arquivos são baixados.
+        new_name (str): Novo nome para o arquivo baixado.
+    """
     files = os.listdir(download_dir)
     pdf_files = [f for f in files if f.endswith(".pdf")]
     if not pdf_files:
@@ -76,7 +119,57 @@ def rename_downloaded_file(download_dir, new_name):
         except Exception as delete_error:
             logging.error(f"Erro ao deletar o arquivo: {delete_error}")
 
+def click_ignore_survey(driver):
+    """
+    Clica no botão "Ignorar pesquisa" se o modal de pesquisa aparecer.
+    
+    Args:
+        driver (WebDriver): Instância do WebDriver.
+    
+    Returns:
+        bool: True se o botão foi clicado com sucesso, False caso contrário.
+    """
+    try:
+        # Espera até que o modal esteja presente
+        modal = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CLASS_NAME, "ReactModalPortal"))
+        )
+        # Espera até que o botão "Ignorar pesquisa" esteja presente e clicável
+        ignore_button = WebDriverWait(modal, 10).until(
+            EC.element_to_be_clickable((By.XPATH, "//button[text()='Ignorar pesquisa']"))
+        )
+        ignore_button.click()
+        logging.info("Botão 'Ignorar pesquisa' clicado.")
+        logging.info("Aguardando 2 segundos para fechar o modal...")
+        time.sleep(2)
+        try:
+            # Espera até que o botão de fechar o modal esteja presente e clicável
+            close_button = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//button[@aria-label='Fechar Modal']"))
+            )
+            close_button.click()
+            logging.info("Botão de fechar modal clicado.")
+            return True
+        except Exception as e:
+            logging.error(f"Erro ao clicar no ícone de fechar modal: {e}")
+            return False
+    except Exception as e:
+        logging.error(f"Erro ao clicar no botão 'Ignorar pesquisa': {e}")
+        return False
+
 def process_lesson_buttons(driver, lesson_element, download_dir, wait_time=1):
+    """
+    Processa os botões de download de uma aula e renomeia os arquivos baixados.
+    
+    Args:
+        driver (WebDriver): Instância do WebDriver.
+        lesson_element (WebElement): Elemento da aula contendo os botões de download.
+        download_dir (str): Diretório onde os arquivos são baixados.
+        wait_time (int): Tempo de espera entre downloads.
+    
+    Returns:
+        list: Lista de URLs dos arquivos baixados.
+    """
     pdf_buttons = find_pdf_buttons(lesson_element)
     if not pdf_buttons:
         logging.info("Nenhum botão relevante encontrado na aula.")
@@ -101,15 +194,48 @@ def process_lesson_buttons(driver, lesson_element, download_dir, wait_time=1):
     return links
 
 def find_pdf_buttons(lesson_element):
+    """
+    Encontra os botões de download de PDF em um elemento de aula.
+    
+    Args:
+        lesson_element (WebElement): Elemento da aula contendo os botões de download.
+    
+    Returns:
+        list: Lista de elementos de botão de download.
+    """
     return lesson_element.find_elements(By.CSS_SELECTOR,
         '.LessonButton[href^="https://api.estrategiaconcursos.com.br/api/aluno/pdf/download/"]'
     )
 
 def initiate_download(driver, button, url):
-    driver.execute_script("arguments[0].click();", button)
-    logging.info(f"Download iniciado para o URL: {url}")
+    """
+    Inicia o download de um arquivo PDF clicando no botão correspondente.
+    
+    Args:
+        driver (WebDriver): Instância do WebDriver.
+        button (WebElement): Elemento do botão de download.
+        url (str): URL do arquivo a ser baixado.
+    """
+    try:
+        driver.execute_script("arguments[0].click();", button)
+        logging.info(f"Primeira tentativa de download para o URL: {url}")
+        if click_ignore_survey(driver):
+            driver.execute_script("arguments[0].click();", button)
+            logging.info(f"Segunda tentativa de download para o URL: {url}")
+    except Exception as e:
+        logging.error(f"Erro ao iniciar o download para o URL: {url} - {e}")
+    else:
+        logging.info(f"Download iniciado para o URL: {url}")
 
 def wait_for_download(download_dir, old_num_files=0, timeout=60):
+    """
+    Aguarda até que o download de um arquivo seja concluído.
+    
+    Args:
+        download_dir (str): Diretório onde os arquivos são baixados.
+        old_num_files (int): Número de arquivos no diretório antes do download.
+        timeout (int): Tempo máximo de espera pelo download (em segundos).
+    """
     for _ in range(timeout):
         files = os.listdir(download_dir)
         logging.info(f"Arquivos na pasta de downloads: {files}")
@@ -121,6 +247,13 @@ def wait_for_download(download_dir, old_num_files=0, timeout=60):
     logging.warning(f"Aviso: O download do arquivo demorou mais do que o esperado.")
 
 def open_lesson(driver, lesson_element):
+    """
+    Abre uma aula clicando no cabeçalho correspondente.
+    
+    Args:
+        driver (WebDriver): Instância do WebDriver.
+        lesson_element (WebElement): Elemento da aula a ser aberta.
+    """
     try:
         lesson_header = lesson_element.find_element(By.CLASS_NAME, "Collapse-header")
         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", lesson_header)
@@ -133,6 +266,16 @@ def open_lesson(driver, lesson_element):
         logging.error(f"Erro ao tentar abrir a aula: {e}")
 
 def process_lessons(driver, download_dir):
+    """
+    Processa todas as aulas na página, baixando e renomeando os arquivos PDF.
+    
+    Args:
+        driver (WebDriver): Instância do WebDriver.
+        download_dir (str): Diretório onde os arquivos são baixados.
+    
+    Returns:
+        list: Lista de dicionários contendo os nomes das aulas e os links dos arquivos baixados.
+    """
     lessons = driver.find_elements(By.CLASS_NAME, "LessonList-item")
     if not lessons:
         logging.info("Nenhuma aula encontrada na página.")
