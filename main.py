@@ -64,6 +64,17 @@ def truncate_filename(filename, max_length=150):
         filename = filename[:max_length]
     return filename
 
+def get_course_name(driver):
+    try:
+        course_title_element = driver.find_element(By.CSS_SELECTOR, "h2.CourseInfo-content-title")
+        course_title = course_title_element.text
+        sanitized_course_title = sanitize_filename(course_title)
+        logging.info(f"Nome do curso: {sanitized_course_title}")
+        return sanitized_course_title
+    except Exception as e:
+        logging.error(f"Erro ao obter o nome do curso: {e}")
+        return "Curso_Sem_Nome"
+
 def get_lesson_name(lesson_element):
     """
     Obtém o nome da aula a partir dos elementos HTML.
@@ -151,10 +162,10 @@ def click_ignore_survey(driver):
             logging.info("Botão de fechar modal clicado.")
             return True
         except Exception as e:
-            logging.error(f"Erro ao clicar no ícone de fechar modal: {e}")
+            logging.error("Erro ao clicar no ícone de fechar modal.")
             return False
     except Exception as e:
-        logging.error(f"Erro ao clicar no botão 'Ignorar pesquisa': {e}")
+        logging.error("Erro ao clicar no botão 'Ignorar pesquisa'.")
         return False
 
 def process_lesson_buttons(driver, lesson_element, download_dir, wait_time=1):
@@ -184,9 +195,8 @@ def process_lesson_buttons(driver, lesson_element, download_dir, wait_time=1):
             links.append(url)
             try:
                 initiate_download(driver, button, url)
-                wait_for_download(download_dir, num_files)
-                time.sleep(wait_time)  # Aguarda para garantir que o arquivo foi salvo
-                rename_downloaded_file(download_dir, lesson_name)
+                if wait_for_download(download_dir, num_files):
+                    rename_downloaded_file(download_dir, lesson_name)
             except Exception as e:
                 logging.error(f"Erro ao clicar no botão de download: {e}")
         else:
@@ -238,13 +248,13 @@ def wait_for_download(download_dir, old_num_files=0, timeout=60):
     """
     for _ in range(timeout):
         files = os.listdir(download_dir)
-        logging.info(f"Arquivos na pasta de downloads: {files}")
         new_num_files = len(files)
         if files and (files[-1].endswith('.pdf') and new_num_files > old_num_files):
             logging.info("Download concluído!")
-            return
+            return True
         time.sleep(1)
-    logging.warning(f"Aviso: O download do arquivo demorou mais do que o esperado.")
+    logging.warning(f"Aviso: O download do arquivo demorou mais do que o esperado. Passando para próxima aula...")
+    return False
 
 def open_lesson(driver, lesson_element):
     """
@@ -295,11 +305,13 @@ def process_lessons(driver, download_dir):
     return lessons_list
 
 if __name__ == "__main__":
+    
+    # Cria o diretório de downloads
     download_dir = os.path.join(os.getcwd(), "downloads")
     os.makedirs(download_dir, exist_ok=True)
 
-    # Solicita o URL ao usuário
-    url = input("Digite o URL do curso (exemplo: https://www.estrategiaconcursos.com.br/app/dashboard/cursos/220866/aulas): ")
+    # URL da página do curso
+    url = "https://www.estrategiaconcursos.com.br/app/dashboard/cursos/326627/aulas"
 
     # Inicializa o navegador sem headless para login manual
     driver = setup_chrome_driver(download_dir, headless=False)
@@ -307,9 +319,20 @@ if __name__ == "__main__":
 
     input("Pressione Enter após realizar o login manual na página...")
 
+    # Processa as aulas e arquivos
     try:
-        lessons_data = process_lessons(driver, download_dir)
+        course_name = get_course_name(driver) # Obtem o nome do curso
+        lessons_data = process_lessons(driver, download_dir) # Processa as aulas
+        
+        # Renomeia a pasta de downloads para o nome do curso
+        try:
+            course_name_dir = os.path.join(os.getcwd(), sanitize_filename(course_name))
+            os.rename(download_dir, course_name_dir)
+        except Exception as e:
+            logging.error(f"Erro ao renomear a pasta de downloads: {e}")
         logging.info(f"Dados coletados: {lessons_data}")
-        logging.info(f"Arquivos baixados em: {download_dir}")
+        logging.info(f"Arquivos baixados em: {course_name_dir}")
+    except Exception as e:
+        logging.error(f"Erro durante o processamento das aulas: {e}")
     finally:
         driver.quit()
