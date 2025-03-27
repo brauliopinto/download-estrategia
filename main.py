@@ -7,9 +7,14 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import NoAlertPresentException
+from dotenv import load_dotenv  # Importa a biblioteca dotenv
 
 # Configuração do logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Carrega as variáveis de ambiente do arquivo .env
+load_dotenv()
 
 def setup_chrome_driver(download_dir, headless=False):
     """
@@ -35,6 +40,78 @@ def setup_chrome_driver(download_dir, headless=False):
     chrome_options.add_argument("--disable-gpu")  # Necessário para algumas versões do Chrome
     chrome_options.add_argument("--window-size=1920x1080")  # Define o tamanho da janela
     return webdriver.Chrome(options=chrome_options)
+
+from selenium.common.exceptions import NoAlertPresentException
+
+def handle_alert(driver):
+    """
+    Captura e fecha um alerta, se presente.
+    
+    Args:
+        driver (WebDriver): Instância do WebDriver.
+    """
+    try:
+        alert = driver.switch_to.alert
+        logging.info(f"Texto do alerta: {alert.text}")
+        alert.accept()  # Fecha o alerta clicando em "OK"
+        logging.info("Alerta fechado com sucesso.")
+    except NoAlertPresentException:
+        logging.info("Nenhum alerta presente.")
+
+def login(driver):
+    """
+    Realiza o login automático na página usando as credenciais do arquivo .env.
+    """
+    try:
+        # Carrega as credenciais do arquivo .env
+        username = os.getenv("login")
+        password = os.getenv("password")
+
+        # Localiza os campos de login e senha e o botão de login
+        try:
+            username_field = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.NAME, "loginField"))
+            )
+            username_field.clear()  # Limpa o campo antes de preencher
+            username_field.send_keys(username)  # Preenche o campo com o usuário
+            time.sleep(2)
+        except Exception as e:
+            logging.error(f"Erro ao localizar o campo de usuário: {e}")
+            raise
+        try:
+            # Localiza o campo de senha
+            password_field = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, "//input[@type='password' and @name='passwordField']"))
+            )
+            password_field.clear()
+
+            # Preenche o campo de senha
+            try:
+                password_field.send_keys(password)
+            except Exception:
+                # Fallback: usa JavaScript para preencher o campo de senha
+                driver.execute_script("arguments[0].value = arguments[1];", password_field, password)
+                logging.info("Campo de senha preenchido usando JavaScript.")
+                time.sleep(2)
+        except Exception as e:
+            logging.error(f"Erro ao localizar o campo de senha: {e}")
+            raise
+        try:
+            login_button = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//button[span[contains(text(), 'Continuar')]]"))
+            )
+        except Exception as e:
+            logging.error(f"Erro ao localizar o botão de login: {e}")
+            raise
+
+        # Clica no botão de login
+        login_button.click()
+        logging.info("Autenticando usuário...")
+        time.sleep(10)
+        logging.info("Login realizado com sucesso!")
+    except Exception as e:
+        logging.error(f"Erro ao realizar o login: {e}")
+        raise
 
 def sanitize_filename(filename):
     """
@@ -66,7 +143,10 @@ def truncate_filename(filename, max_length=150):
 
 def get_course_name(driver):
     try:
-        course_title_element = driver.find_element(By.CSS_SELECTOR, "h2.CourseInfo-content-title")
+        # Aguarda até que o elemento do título do curso esteja presente na página
+        course_title_element = WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "h2.CourseInfo-content-title"))
+        )
         course_title = course_title_element.text
         sanitized_course_title = sanitize_filename(course_title)
         logging.info(f"Nome do curso: {sanitized_course_title}")
@@ -311,21 +391,29 @@ if __name__ == "__main__":
     os.makedirs(download_dir, exist_ok=True)
 
     # URL da página do curso
-    url = "https://www.estrategiaconcursos.com.br/app/dashboard/cursos/326627/aulas"
+    url = "https://www.estrategiaconcursos.com.br/app/dashboard/cursos/327492/aulas"
 
     # Inicializa o navegador sem headless para login manual
     driver = setup_chrome_driver(download_dir, headless=False)
     driver.get(url)
-
-    input("Pressione Enter após realizar o login manual na página...")
-
     # Processa as aulas e arquivos
     try:
-        course_name = get_course_name(driver) # Obtem o nome do curso
-        lessons_data = process_lessons(driver, download_dir) # Processa as aulas
+        try:
+            logging.info("Aguardando 5 segundos para carregar a página...")
+            time.sleep(5)
+            # Carrega as credenciais do arquivo .env            
+            login(driver) # Realiza o login automático         
+        except Exception as e:
+            logging.info("Por favor, faça o login manualmente e pressione Enter para continuar...")
+            input()
+        # Fecha alertas, se presentes
+        handle_alert(driver)
+        # Processa as aulas
+        lessons_data = process_lessons(driver, download_dir)
         
         # Renomeia a pasta de downloads para o nome do curso
         try:
+            course_name = get_course_name(driver) # Obtém o nome do curso
             course_name_dir = os.path.join(os.getcwd(), sanitize_filename(course_name))
             os.rename(download_dir, course_name_dir)
         except Exception as e:
