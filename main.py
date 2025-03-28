@@ -41,8 +41,6 @@ def setup_chrome_driver(download_dir, headless=False):
     chrome_options.add_argument("--window-size=1920x1080")  # Define o tamanho da janela
     return webdriver.Chrome(options=chrome_options)
 
-from selenium.common.exceptions import NoAlertPresentException
-
 def handle_alert(driver):
     """
     Captura e fecha um alerta, se presente.
@@ -58,15 +56,11 @@ def handle_alert(driver):
     except NoAlertPresentException:
         logging.info("Nenhum alerta presente.")
 
-def login(driver):
+def login(driver, username, password):
     """
     Realiza o login automático na página usando as credenciais do arquivo .env.
     """
     try:
-        # Carrega as credenciais do arquivo .env
-        username = os.getenv("login")
-        password = os.getenv("password")
-
         # Localiza os campos de login e senha e o botão de login
         try:
             username_field = WebDriverWait(driver, 10).until(
@@ -401,8 +395,10 @@ if __name__ == "__main__":
         try:
             logging.info("Aguardando 5 segundos para carregar a página...")
             time.sleep(5)
-            # Carrega as credenciais do arquivo .env            
-            login(driver) # Realiza o login automático         
+            # Carrega as credenciais do arquivo .env
+            username = os.getenv("login")
+            password = os.getenv("password")            
+            login(driver, username, password) # Realiza o login automático         
         except Exception as e:
             logging.info("Por favor, faça o login manualmente e pressione Enter para continuar...")
             input()
