@@ -1,14 +1,26 @@
 from flask import Flask, render_template, request, send_from_directory, jsonify, send_file
+from flask_socketio import SocketIO, emit
 import os
 import threading
-from main import setup_chrome_driver, login, process_lessons, get_course_name, sanitize_filename
+from main import (setup_chrome_driver, login, process_lessons, get_course_name,
+                   sanitize_filename, handle_alert)
 import zipfile
 import io
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import logging
+import time
+
 
 app = Flask(__name__)
+# Configurações do Flask-SocketIO
+socketio = SocketIO(app)
 
 # Diretório onde os arquivos baixados serão armazenados
 DOWNLOAD_DIR = os.path.join(os.getcwd(), "downloads")
+# Variável global para controlar o estado do download
+DOWNLOAD_COMPLETE = False
 
 @app.route('/')
 def index():
@@ -26,18 +38,42 @@ def download():
 
     # Executa o script em uma thread separada
     def run_script():
-        global DOWNLOAD_DIR
+        global DOWNLOAD_DIR, DOWNLOAD_COMPLETE
+        # Limpa o diretório de downloads antes de iniciar um novo download
         driver = setup_chrome_driver(DOWNLOAD_DIR, headless=False)
         try:
             driver.get(url)
             login(driver, username, password)
+
+        #TODO: Melhorar a espera para evitar o uso de sleep
+            # Aguarda até que a página de lições esteja carregada
+            try:
+                # Aguarda a presença do alerta antes de tentar fechá-lo
+                WebDriverWait(driver, 20).until(EC.alert_is_present())
+                handle_alert(driver)
+                
+                # Aguarda até que a página de lições esteja carregada
+                WebDriverWait(driver, 30).until(
+                    EC.presence_of_element_located((By.CLASS_NAME, "LessonList-item"))
+                )
+                logging.info("Página de lições carregada com sucesso.")
+            except Exception as e:
+                logging.error(f"Erro ao carregar a página de lições: {e}")
+                socketio.emit('download_error', {'message': 'Erro ao carregar a página de lições.'}, namespace='/')
+                return
+            # Fecha alertas, se presentes
+            handle_alert(driver)
             process_lessons(driver, DOWNLOAD_DIR)
             course_name = get_course_name(driver)
             course_name_dir = os.path.join(os.getcwd(), sanitize_filename(course_name))
             os.rename(DOWNLOAD_DIR, course_name_dir)
             DOWNLOAD_DIR = course_name_dir
+            DOWNLOAD_COMPLETE = True
+            # Notifica o cliente quando o download é concluído
+            socketio.emit('download_complete', {'message': 'Download concluído com sucesso!'}, namespace='/')
         except Exception as e:
             print(f"Erro: {e}")
+            socketio.emit('download_error', {'message': 'Ocorreu um erro durante o download.'}, namespace='/')
         finally:
             driver.quit()
 

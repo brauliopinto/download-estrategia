@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Download Estratégia</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    <style>
+        .btn-success {
+            background-color: #28a745 !important;
+            border-color: #28a745 !important;
+        }
+    </style>
 </head>
 <body class="bg-light">
     <div class="container mt-5">
@@ -32,7 +39,7 @@
                                 <button type="submit" class="btn btn-primary">Iniciar Download</button>
                             </div>
                             <div class="d-grid mt-3">
-                                <a href="/files" class="btn btn-secondary">Ver Arquivos Disponíveis</a>
+                                <a href="/files" id="view-files-btn" class="btn btn-secondary disabled" aria-disabled="true">Ver Arquivos Disponíveis</a>
                             </div>
                         </form>
                         <div id="status-message" class="mt-3 text-center"></div>
@@ -44,6 +51,26 @@
     <script>
         const form = document.getElementById('download-form');
         const statusMessage = document.getElementById('status-message');
+        const viewFilesBtn = document.getElementById('view-files-btn');
+
+        // Conecta ao servidor WebSocket
+        const socket = io();
+
+        // Escuta eventos de conclusão do download
+        socket.on('download_complete', (data) => {
+            statusMessage.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+            viewFilesBtn.classList.remove('disabled');
+            viewFilesBtn.removeAttribute('aria-disabled');
+
+            // Altera a cor do botão "Ver Arquivos Disponíveis" para verde
+            viewFilesBtn.classList.remove('btn-secondary');
+            viewFilesBtn.classList.add('btn-success');
+        });
+
+        // Escuta eventos de erro no download
+        socket.on('download_error', (data) => {
+            statusMessage.innerHTML = `<div class="alert alert-danger">${data.message}</div>`;
+        });
 
         form.addEventListener('submit', function (event) {
             event.preventDefault(); // Impede o envio padrão do formulário
